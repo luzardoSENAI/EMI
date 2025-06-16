@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <title>Andamento do Curso EMI - Com Lista em Duplas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body { padding: 20px; }
+    textarea { font-family: monospace; height: 200px; }
+    table { font-size: 0.9rem; }
+    .table thead th { vertical-align: middle; }
+  </style>
+</head>
+<body class="bg-dark text-white">
+  <div class="container">
+    <h1 class="mb-4">📊 Andamento do Curso EMI - Disciplinas em Duplas</h1>
+
+    <div class="mb-3">
+      <label for="disciplinasInput" class="form-label">Disciplinas Fase 1 (antes do início das duplas, uma por vez):</label>
+      <textarea id="disciplinasInput" class="form-control" spellcheck="false">
+Projeto e estruturação de Interface Web	120
+Criação e Editoração de Multimídia	84
+      </textarea>
+    </div>
+
+    <div class="mb-3">
+      <label for="disciplinasDuplasInput" class="form-label">Disciplinas Fase 2 (início das duplas a partir do 26/03):</label>
+      <textarea id="disciplinasDuplasInput" class="form-control" spellcheck="false">
+Programação Cliente - SIDE	84
+Banco de Dados	96
+Modelagem de Sistemas	96
+Desenvolvimento de Sistemas Web	96
+Testes de Sistemas	72
+Implantação e Manutenção de Sistemas	72
+      </textarea>
+    </div>
+
+    <button class="btn btn-primary mb-4" onclick="calcularAndamento()">Calcular Andamento</button>
+
+    <div id="resultado"></div>
+  </div>
+
+<script>
+  const inicioCurso = new Date(2025, 0, 29); // 29 Jan 2025
+  const dataTransicao = new Date(2025, 2, 26); // 26 Mar 2025
+
+  const recessoInicio = new Date(2025, 6, 5); // 05 Jul 2025
+  const recessoFim = new Date(2025, 6, 29); // 29 Jul 2025
+
+  const feriadosEMI = new Set();
+
+  async function carregarFeriados() {
+    try {
+      const res = await fetch('arquivosdatasEMI.txt');
+      const texto = await res.text();
+      const linhas = texto.trim().split('\n');
+      linhas.forEach(linha => {
+        const [tipo, data] = linha.split(':');
+        if (tipo && tipo.trim() === 'feriado' && data) {
+          const [dia, mes] = data.trim().split('-');
+          const dataISO = `2025-${mes.padStart(2, '0')}-${dia.padStart(2, '0')}`;
+          feriadosEMI.add(dataISO);
+        }
+      });
+    } catch (e) {
+      alert('Erro ao carregar arquivo de feriados arquivosdatasEMI.txt');
+    }
+  }
+
+  function isDiaUtil(date) {
+    const day = date.getDay(); // 0=Dom, 1=Seg ... 6=Sab
+    const iso = date.toISOString().slice(0, 10);
+    return (
+      [3,4,5].includes(day) && // Quarta, Quinta e Sexta
+      !feriadosEMI.has(iso) &&
+      (date < recessoInicio || date > recessoFim)
+    );
+  }
+
+  function proximoDiaUtil(date) {
+    let nova = new Date(date);
+    while (!isDiaUtil(nova)) {
+      nova.setDate(nova.getDate() + 1);
+    }
+    return nova;
+  }
+
+  function formatarDataBR(date) {
+    const d = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}/${m}/${y}`;
+  }
+
+  async function calcularAndamento() {
+    await carregarFeriados();
+
+    // Pega as disciplinas da fase 1 (antes da transição)
+    const txtFase1 = document.getElementById('disciplinasInput').value.trim().split('\n');
+    const fase1 = [];
+    for (const linha of txtFase1) {
+      const partes = linha.trim().split('\t');
+      if (partes.length !== 2) continue;
+      const nome = partes[0].trim();
+      const carga = parseInt(partes[1].trim());
+      if (nome && !isNaN(carga)) fase1.push({nome, carga, restante: carga});
+    }
+
+    // Pega as disciplinas da fase 2 (duplas após a transição)
+    const txtFase2 = document.getElementById('disciplinasDuplasInput').value.trim().split('\n');
+    const filaFase2 = [];
+    for (const linha of txtFase2) {
+      const partes = linha.trim().split('\t');
+      if (partes.length !== 2) continue;
+      const nome = partes[0].trim();
+      const carga = parseInt(partes[1].trim());
+      if (nome && !isNaN(carga)) filaFase2.push({nome, carga, restante: carga});
+    }
+
+    let hoje = proximoDiaUtil(new Date(inicioCurso));
+
+    const periodos = [];
+
+    // Processar fase 1: uma disciplina por vez, 6 aulas/dia
+    for (const disc of fase1) {
+      const cargaDiaria = 6;
+      const diasNecessarios = Math.ceil(disc.carga / cargaDiaria);
+
+      const inicio = new Date(hoje);
+      let diaAtual = new Date(hoje);
+      let aulasRestantes = disc.carga;
+
+      while (aulasRestantes > 0) {
+        if (isDiaUtil(diaAtual)) {
+          aulasRestantes -= cargaDiaria;
+        }
+        diaAtual.setDate(diaAtual.getDate() + 1);
+      }
+      const fim = new Date(diaAtual);
+      fim.setDate(fim.getDate() - 1);
+
+      periodos.push({
+        nome: disc.nome,
+        inicio,
+        fim,
+        carga: disc.carga,
+      });
+
+      hoje = proximoDiaUtil(new Date(fim.getTime() + 24*60*60*1000)); // próximo dia útil depois do fim
+    }
+
+    // Agora fase 2: duas disciplinas simultâneas, 3 aulas/dia cada
+    // Vamos controlar um array de até 2 disciplinas ativas e fila para entrar
+
+    let disciplinasAtivas = [];
+    const fila = [...filaFase2];
+
+    // Iniciar as duas primeiras disciplinas da fila
+    for (let i = 0; i < 2; i++) {
+      if (fila.length > 0) {
+        let disc = fila.shift();
+        disc.inicio = new Date(hoje);
+        disc.restante = disc.carga;
+        disciplinasAtivas.push(disc);
+      }
+    }
+
+    while (disciplinasAtivas.length > 0) {
+      // Avança um dia útil
+      if (!isDiaUtil(hoje)) {
+        hoje.setDate(hoje.getDate() + 1);
+        continue;
+      }
+
+      // Aplica carga diária para cada disciplina ativa
+      disciplinasAtivas.forEach(d => {
+        d.restante -= 3; // 3 aulas por dia útil por disciplina
+        if (d.restante < 0) d.restante = 0;
+      });
+
+      // Verifica se alguma disciplina terminou
+      for (let i = disciplinasAtivas.length - 1; i >= 0; i--) {
+        if (disciplinasAtivas[i].restante === 0) {
+          // Finaliza período
+          periodos.push({
+            nome: disciplinasAtivas[i].nome,
+            inicio: disciplinasAtivas[i].inicio,
+            fim: new Date(hoje),
+            carga: disciplinasAtivas[i].carga,
+          });
+          // Remove da ativa
+          disciplinasAtivas.splice(i, 1);
+          // Puxa próxima da fila, se houver
+          if (fila.length > 0) {
+            let prox = fila.shift();
+            prox.inicio = new Date(hoje);
+            prox.restante = prox.carga;
+            disciplinasAtivas.push(prox);
+          }
+        }
+      }
+
+      // Avança o dia
+      hoje.setDate(hoje.getDate() + 1);
+    }
+
+    // Exibe resultado na tela
+    let html = `<h3>Andamento do Curso EMI</h3>`;
+    html += `<table class="table table-striped table-dark table-bordered">
+      <thead>
+        <tr>
+          <th>Disciplina</th>
+          <th>Data Início</th>
+          <th>Data Término</th>
+          <th>Carga Horária</th>
+        </tr>
+      </thead>
+      <tbody>`;
+
+    periodos.forEach(p => {
+      html += `<tr>
+        <td>${p.nome}</td>
+        <td>${formatarDataBR(p.inicio)}</td>
+        <td>${formatarDataBR(p.fim)}</td>
+        <td>${p.carga} aulas</td>
+      </tr>`;
+    });
+
+    html += `</tbody></table>`;
+
+    document.getElementById('resultado').innerHTML = html;
+  }
+</script>
+</body>
+</html>
